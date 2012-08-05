@@ -1,4 +1,7 @@
+#include "config.h"
+
 #include "usart.h"
+
 #include <avr/io.h>
 
 void usart_init()

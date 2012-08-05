@@ -1,15 +1,16 @@
-/*
- */
+#include "config.h"
 
-#define F_CPU 16000000UL
-
-#include <avr/io.h>
-#include <util/delay.h>
 #include "spi.h"
 #include "enc28j60.h"
 #include "enc28j60packet.h"
 #include "enc28j60reg.h"
 #include "usart.h"
+
+#include <avr/io.h>
+#include <util/delay.h>
+
+
+
 
 void delay_ms(uint16_t ms)
 {

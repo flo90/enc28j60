@@ -1,4 +1,7 @@
+#include "config.h"
+
 #include "spi.h"
+
 #include <inttypes.h>
 #include <avr/io.h>
 

@@ -1,12 +1,17 @@
+#include "config.h"
+
 #include "enc28j60reg.h"
 #include "enc28j60.h"
 #include "enc28j60buffer.h"
 #include "spi.h"
+
 #include <avr/io.h>
+#include <util/delay.h>
+
 
 #ifdef ENC28J60_DEBUG
 #include <stdio.h>
-char dbgmsgbuf[20];
+char dbgmsgbuf[30];
 void (*dbgmsgout) (char *msg);
 #endif
 
@@ -64,7 +69,7 @@ static inline void initRecvBuffer(void)
   enc28j60_writeReg( ERXSTL, RXBUFFERSTPTR & 0x00FF );
   enc28j60_writeReg( ERXSTH, RXBUFFERSTPTR >> 8 );
 
-  #ifdef ENC28J60_DEBUG
+#ifdef ENC28J60_DEBUG
   snprintf(dbgmsgbuf, 20, "RXBUFSTPTR %x\n\r", RXBUFFERSTPTR);
   dbgmsgout( dbgmsgbuf );
 #endif
@@ -73,7 +78,7 @@ static inline void initRecvBuffer(void)
   enc28j60_writeReg( ERXNDL, RXBUFFERNDPTR & 0x00FF );
   enc28j60_writeReg( ERXNDH, RXBUFFERNDPTR >> 8 );
   
-   #ifdef ENC28J60_DEBUG
+#ifdef ENC28J60_DEBUG
   snprintf(dbgmsgbuf, 20, "RXBUFNDPTR %x\n\r", RXBUFFERNDPTR);
   dbgmsgout( dbgmsgbuf );
 #endif
@@ -144,7 +149,7 @@ static inline void initPHY(void)
   enc28j60_writePhyReg( PHCON1, temp );
   
   //You may change the LED output behavior
-  enc28j60_writePhyReg(PHLCON, 0x3472 );
+  enc28j60_writePhyReg(PHLCON, 0x3122 );
   
   
   
@@ -168,9 +173,10 @@ void enc28j60_init( uint8_t (*pexchangebyte) (uint8_t data), unsigned char ploca
   nextPacketPtr = 0;
   
   
-  //Wait for ESTAT_CLKRDY 
-  while( !( enc28j60_readReg( ESTAT ) & ESTAT_CLKRDY ) );
-  
+  //Wait for ESTAT_CLKRDY
+  //Not reliable!!!!! Errata issue 2
+  //while( !( enc28j60_readReg( ESTAT ) & ESTAT_CLKRDY ) );
+  _delay_ms(1);
   
   //Now we init the MAC like described in the Datasheet
   
@@ -213,7 +219,8 @@ void enc28j60_init( uint8_t (*pexchangebyte) (uint8_t data), void (*pdbgmsgout) 
   nextPacketPtr = 0;
   
   //Wait for ESTAT_CLKRDY 
-  while( !( enc28j60_readReg( ESTAT ) & ESTAT_CLKRDY ) );
+  //while( !( enc28j60_readReg( ESTAT ) & ESTAT_CLKRDY ) );
+  _delay_ms(1);
   
   dbgmsgout( "MAC init\n\r" );
   
@@ -235,14 +242,11 @@ void enc28j60_init( uint8_t (*pexchangebyte) (uint8_t data), void (*pdbgmsgout) 
   
   initPHY();
   
+  bitFieldSet( ECON1, ECON1_TXRST );
+  
 }
 
 #endif
-
-
-
-
-
 
 uint8_t enc28j60_readReg( uint8_t reg )
 {
@@ -351,9 +355,6 @@ void enc28j60_sendPacket( unsigned char dst[5],  unsigned char *data, uint16_t s
 {
   uint16_t i;
   
-  while( enc28j60_readReg( ECON1 ) & ECON1_TXRTS );
-  
-  //ToDo: Check if Transmit logic is dead
   setTxBufStPtr( TXBUFFERSTPTR );
   
   select();
@@ -390,7 +391,88 @@ void enc28j60_sendPacket( unsigned char dst[5],  unsigned char *data, uint16_t s
   enc28j60_writeReg( ETXNDL, ( (TXBUFFERSTPTR+12) + size ) & 0x00FF );
   enc28j60_writeReg( ETXNDH,  ( (TXBUFFERSTPTR+12) + size ) >> 8 );
   
+  transmissionRestart:
+  
+  enc28j60_writeReg( EWRPTL, ( (TXBUFFERSTPTR+13) + size ) & 0x00FF );
+  enc28j60_writeReg( EWRPTH,  ( (TXBUFFERSTPTR+13) + size ) >> 8 );
+  
+  select();
+  
+  exchangebyte(WBM);
+  
+  for( i = 0; i < 7; i++)
+  {
+    exchangebyte( 0x00 );
+  }
+  
+  deselect();
+  
+  //Clearing error flags
+  bitFieldClear( EIR, EIR_TXERIF );
+  bitFieldClear( EIR, EIR_TXIF );
+  bitFieldClear( ESTAT, ESTAT_TXABRT );
+  
   //Let's go
   enc28j60_writeReg( ECON1, ECON1_TXRTS );
+  
+  uint8_t error= 255;
+  
+  while( ( ! (enc28j60_readReg( EIR ) & EIR_TXERIF ) ) &&  ( ! (enc28j60_readReg( EIR ) & EIR_TXIF ) )  )
+  {
+    if(error < 1)
+    {
+      if(enc28j60_readReg( ESTAT ) & ESTAT_TXABRT)
+      {
+        dbgmsgout("ESTAT_TXABRT\n\r");
+      }
+  
+      if( enc28j60_readReg( EIR ) & EIR_TXIF  )
+      {
+        dbgmsgout("TXIF\n\r");
+      }
+      if( enc28j60_readReg( ECON1 ) & ECON1_TXRTS )
+      {
+       dbgmsgout( "TXRTS\n\r" );
+      }
+      
+       enc28j60_writeReg( ERDPTL, ( (TXBUFFERSTPTR+13) + size ) & 0x00FF );
+       enc28j60_writeReg( ERDPTH,  ( (TXBUFFERSTPTR+13) + size ) >> 8 );
+      
+       select();
+       
+       exchangebyte(RBM);
+       dbgmsgout("Status Vector:\r\n");
+       
+       for( i = 0; i<7; i++)
+       {
+	 snprintf(dbgmsgbuf, 20, "%x\n\r", exchangebyte(0x00));
+         dbgmsgout( dbgmsgbuf );
+       }
+       
+      dbgmsgout( "RST Transmit\n\r" );
+      bitFieldClear( ECON1, ECON1_TXRTS );
+      bitFieldSet( ECON1, ECON1_TXRST );
+      bitFieldClear( ECON1, ECON1_TXRTS );
+      goto transmissionRestart;
+    }
+    else
+    {
+      --error;
+    }
+  }
+  
+  enc28j60_writeReg( ERDPTL, ( (TXBUFFERSTPTR+13) + size ) & 0x00FF );
+  enc28j60_writeReg( ERDPTH,  ( (TXBUFFERSTPTR+13) + size ) >> 8 );
+
+  select();
+       
+  exchangebyte(RBM);
+  dbgmsgout("Status Vector:\r\n");
+       
+  for( i = 0; i<7; i++)
+  {
+    snprintf(dbgmsgbuf, 20, "%x\n\r", exchangebyte(0x00));
+    dbgmsgout( dbgmsgbuf );
+  }
   
 }

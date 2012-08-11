@@ -325,21 +325,20 @@ void enc28j60_sendPacket( unsigned char dst[5],  unsigned char *data, uint16_t s
   //Let's go
   enc28j60_writeOp( ENC28j60_BFS, ENC28j60_ECON1, ENC28j60_ECON1_TXRTS );
   
-  error_timer=255;
-  while( enc28j60_readReg( ENC28j60_ECON1 ) & ENC28j60_ECON1_TXRTS  );
+  error_timer=1210;
+  while( enc28j60_readReg( ENC28j60_ECON1 ) & ENC28j60_ECON1_TXRTS  )
   {
-    //_delay_us(1);
+    _delay_us(1);
     if( error_timer  )
     {
-      error_timer = error_timer - 1;
+      error_timer--;
     }
     
     else
     {
       usart_puts("Error\r\n");
       enc28j60_writeOp( ENC28j60_BFC, ENC28j60_ECON1, ENC28j60_ECON1_TXRTS );
-      enc28j60_writePhyReg( ENC28j60_PHLCON, 0x3AA2 );
-      while(1);
+      //enc28j60_writePhyReg( ENC28j60_PHLCON, 0x3AA2 );
       goto transmissionRestart;
     }
     

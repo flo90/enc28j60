@@ -33,13 +33,13 @@ int main(void)
   
   spi_init( SPI_SPE | SPI_MSTR , SPI_CLK_2);
   
-  enc28j60_init( &spi_exchangebyte, &usart_puts, macaddr );
+  enc28j60_init( &spi_exchangebyte, macaddr );
   
   unsigned char data[5] =  { 0x08, 0x00, 0x03, 0x04, 0x00};
-  data[4] = enc28j60_readReg(EREVID);
+  data[4] = enc28j60_readReg(ENC28j60_EREVID);
   while(1)
   {
-   delay_ms(2000);
+   //delay_ms(2000);
    enc28j60_sendPacket(dst, data, sizeof(data));
   }
   

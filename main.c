@@ -35,7 +35,7 @@ int main(void)
   
   enc28j60_init( &spi_exchangebyte, macaddr );
   
-  unsigned char data[5] =  { 0x08, 0x00, 0x03, 0x04, 0x00};
+  unsigned char data[] =  { 0x08, 0x00, 0x03, 0x04, 0x00};
   data[4] = enc28j60_readReg(ENC28j60_EREVID);
   while(1)
   {

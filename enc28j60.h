@@ -12,6 +12,8 @@ uint16_t enc28j60_readPhyReg ( uint8_t reg );
 
 void enc28j60_init( uint8_t (*pexchangebyte) (uint8_t data), unsigned char plocalmac[6] );
 
-void enc28j60_sendPacket( unsigned char dst[5],  unsigned char *data, uint16_t size );
+void enc28j60_sendPacket( unsigned char dst[5],  unsigned char data[], uint16_t size );
+
+uint16_t enc28j60_recvPacket( unsigned char buf[], uint16_t maxlen );
 
 #endif

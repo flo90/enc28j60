@@ -8,10 +8,10 @@
 
 #include <avr/io.h>
 #include <util/delay.h>
+#include <stdio.h>
 
-
-
-
+unsigned char data[500];
+char txtbuf[500];
 void delay_ms(uint16_t ms)
 {
   for(; ms>0; ms--)
@@ -27,7 +27,7 @@ int main(void)
   PORTB |= ( 1 << PB4 );
   
   unsigned char macaddr[6] = { 0x00, 0x22, 0xF9, 0x01, 0x6D, 0x5A };
-  unsigned char dst[] = {0x1c, 0x6f, 0x65, 0x91, 0x69, 0x85};
+  //unsigned char dst[] = {0x1c, 0x6f, 0x65, 0x91, 0x69, 0x85};
   
   usart_init();
   
@@ -35,12 +35,25 @@ int main(void)
   
   enc28j60_init( &spi_exchangebyte, macaddr );
   
-  unsigned char data[] =  { 0x08, 0x00, 0x03, 0x04, 0x00};
-  data[4] = enc28j60_readReg(ENC28j60_EREVID);
+  //unsigned char data[] =  { 0x08, 0x00, 0x03, 0x04, 0x00};
+  //data[4] = enc28j60_readReg(ENC28j60_EREVID);
+  usart_puts("Start Done!\n\r");
   while(1)
   {
    //delay_ms(2000);
-   enc28j60_sendPacket(dst, data, sizeof(data));
+   //enc28j60_sendPacket(dst, data, sizeof(data));
+   if( enc28j60_readReg( ENC28j60_EPKTCNT ) )
+   {
+     uint16_t recvsize = enc28j60_recvPacket(data, 500);
+     uint16_t i;
+     for( i = 0; i < recvsize; i++ )
+     {
+       snprintf( txtbuf, 500, "%X  ", data[i]);
+       usart_puts( txtbuf );
+     }
+     usart_puts("\n\n\r");
+   }
+  
   }
   
   

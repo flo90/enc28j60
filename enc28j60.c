@@ -8,15 +8,14 @@
 
 #include <avr/io.h>
 #include <util/delay.h>
-
+#include <stdio.h>
 
 
 uint8_t (*exchangebyte) (uint8_t data);
 uint8_t lastbank;
 unsigned char localmac[6];
+char txtbuf[40];
 uint16_t nextPacketPtr;
-
-
 static inline void select(void)
 {
   //Do not forget to implement select
@@ -49,7 +48,7 @@ static inline uint8_t enc28j60_readOp( uint8_t op, uint8_t reg )
   
   data = exchangebyte( 0x00 );
   
-  if( !( reg & 0x80 ) )
+  if( reg & 0x80 )
   {
     data = exchangebyte( 0x00 );
   }
@@ -136,10 +135,7 @@ void enc28j60_init( uint8_t (*pexchangebyte) (uint8_t data), unsigned char ploca
   enc28j60_writeOp( ENC28j60_SOFTRESET, 0, ENC28j60_SOFTRESET );
   
   lastbank=0;
-  
-  nextPacketPtr = 0;
-  
-  
+  nextPacketPtr = RXBUFFERSTPTR;
   //Wait for ESTAT_CLKRDY
   //Not reliable!!!!! Errata issue 2
   //while( !( enc28j60_readReg( ESTAT ) & ESTAT_CLKRDY ) );
@@ -171,8 +167,8 @@ void enc28j60_init( uint8_t (*pexchangebyte) (uint8_t data), unsigned char ploca
   // START: Init Recv Filter
   
   //For default operation we dont need to change anything. Description in Line 59
-  
-  //We dont need to change anything, the default Values only accept Packets with local MAC adress and Broadcast adress
+  //But if you need multicast e.g for Neighbor Discovery Protocol (IPv6)
+  enc28j60_writeOp( ENC28j60_BFS, ENC28j60_ERXFCON, ENC28j60_ERXFCON_MCEN );
   
   // END: Init Recv Filter
   
@@ -184,7 +180,7 @@ void enc28j60_init( uint8_t (*pexchangebyte) (uint8_t data), unsigned char ploca
   enc28j60_writeReg( ENC28j60_MACON2, 0x00 );
   
   //Like the Datasheet describe we set MARXEN to enable the MAC an TXPAUS and RXPAUS for flow control
-  //enc28j60_writeReg( MACON1, MACON1_MARXEN );
+  enc28j60_writeReg( ENC28j60_MACON1, ENC28j60_MACON1_MARXEN );
   
   //Now the Padding is configured. The best way is to configure automatic padding with adding zeros for small packets an CRC checksum
   //the pattern for this configuration is 101 for PADCFG2:PADCFG1
@@ -247,12 +243,21 @@ void enc28j60_init( uint8_t (*pexchangebyte) (uint8_t data), unsigned char ploca
   
   // END: Init Phy
   
+  //Finallay enable Recive
+  enc28j60_writeOp( ENC28j60_BFS, ENC28j60_ECON1, ENC28j60_ECON1_RXEN );
+  
 }
 
 static inline void enc28j60_setBufWrPtr( uint16_t addr )
 {
   enc28j60_writeReg( ENC28j60_EWRPTL, addr );
   enc28j60_writeReg( ENC28j60_EWRPTH, addr >> 8 );
+}
+
+static inline void enc28j60_setBufRdPtr( uint16_t addr )
+{
+  enc28j60_writeReg( ENC28j60_ERDPTL, addr );
+  enc28j60_writeReg( ENC28j60_ERDPTH, addr >> 8 );
 }
 
 static inline void enc28j60_writeBuffer( unsigned char data[],  uint16_t size )
@@ -271,6 +276,20 @@ static inline void enc28j60_writeBuffer( unsigned char data[],  uint16_t size )
   deselect();
 }
 
+static inline void enc28j60_readBuffer( uint8_t *data, uint16_t size )
+{
+  uint16_t i;
+  
+  select();
+  
+  exchangebyte( ENC28j60_RBM );
+  for(i = 0; i < size; i++ )
+  {
+    data[i] = exchangebyte(0x00);
+  }
+  
+  deselect();
+}
 
 void enc28j60_sendPacket( unsigned char dst[5],  unsigned char *data, uint16_t size )
 {
@@ -336,20 +355,91 @@ void enc28j60_sendPacket( unsigned char dst[5],  unsigned char *data, uint16_t s
     
     else
     {
-      usart_puts("Error\r\n");
+      //usart_puts("Error\r\n");
       enc28j60_writeOp( ENC28j60_BFC, ENC28j60_ECON1, ENC28j60_ECON1_TXRTS );
       //enc28j60_writePhyReg( ENC28j60_PHLCON, 0x3AA2 );
       goto transmissionRestart;
     }
     
   }
-  
-  
-  
-  
   /*
   enc28j60_writeReg( ENC28j60_ERDPTL, ( (TXBUFFERSTPTR+13) + size ) & 0x00FF );
   enc28j60_writeReg( ENC28j60_ERDPTH,  ( (TXBUFFERSTPTR+13) + size ) >> 8 );
   */
 }
 
+uint16_t enc28j60_recvPacket( unsigned char *buf, uint16_t maxlen )
+{
+  //usart_puts("Recv\n\r");
+  //This data should not get lost... therefor this variable is static
+  //static uint16_t nextPacketPtr = RXBUFFERSTPTR;
+  
+  snprintf( txtbuf, 40, "NextPktPtr: %d\n\r", nextPacketPtr);
+  usart_puts( txtbuf );
+  
+  
+  uint16_t recvlen;
+  uint8_t statusVct[4];
+  
+  //Pointing to the beginning of the first Packet
+  enc28j60_setBufRdPtr( nextPacketPtr );
+  
+  uint16_t erdpt = enc28j60_readReg( ENC28j60_ERDPTL );
+  erdpt |= enc28j60_readReg( ENC28j60_ERDPTH );
+  
+  snprintf( txtbuf, 40, "erdpt: %d\n\r", erdpt);
+  usart_puts( txtbuf );
+  
+  
+  //Updating nextPacketPtr
+  nextPacketPtr = enc28j60_readOp( ENC28j60_RBM, 0);
+  nextPacketPtr |= enc28j60_readOp( ENC28j60_RBM, 0) << 8;
+  
+  snprintf( txtbuf, 40, "New NextPktPtr: %d\n\r", nextPacketPtr);
+  usart_puts( txtbuf );
+  
+  erdpt = enc28j60_readReg( ENC28j60_ERDPTL );
+  erdpt |= enc28j60_readReg( ENC28j60_ERDPTH );
+  
+  snprintf( txtbuf, 40, "erdpt: %d\n\r", erdpt);
+  usart_puts( txtbuf );
+  
+  //Getting status Vector
+  enc28j60_readBuffer( statusVct, 4 );
+  
+  erdpt = enc28j60_readReg( ENC28j60_ERDPTL );
+  erdpt |= enc28j60_readReg( ENC28j60_ERDPTH );
+  
+  snprintf( txtbuf, 40, "After statusVct erdpt: %d\n\n\n\r", erdpt);
+  usart_puts( txtbuf );
+  
+  
+  
+  //Extracting recive length
+  recvlen = statusVct[0];
+  recvlen |= statusVct[1];
+  
+  //Check if the length is too big
+  if( recvlen <= maxlen )
+  {
+    enc28j60_readBuffer( buf, recvlen );
+  }
+  
+  //Setting blocking pointer to protect unread packets
+  if( ( ( (int) nextPacketPtr ) - 1) < RXBUFFERSTPTR )
+  {
+    enc28j60_writeReg( ENC28j60_ERXRDPTL, RXBUFFERNDPTR & 0x00FF );
+    enc28j60_writeReg( ENC28j60_ERXRDPTH, RXBUFFERNDPTR >> 8 );
+  }
+  else
+  {
+    enc28j60_writeReg( ENC28j60_ERXRDPTL, nextPacketPtr - 1 );
+    enc28j60_writeReg( ENC28j60_ERXRDPTH, (nextPacketPtr - 1) >> 8 );
+  }
+  
+  //Dekrementierung des Packet Counters
+  enc28j60_writeOp( ENC28j60_BFS, ENC28j60_ECON2, ENC28j60_ECON2_PKTDEC );
+  
+  
+  return recvlen<=maxlen ? recvlen : 0;
+}

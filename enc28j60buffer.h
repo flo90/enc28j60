@@ -1,5 +1,5 @@
 /*
-    This file is part of the enc28j60 driver Project
+    This file is part of the enc28j60 driver project
     Copyright (C) 2013  Florian Menne (florianmenne@t-online.de)
 
     This program is free software: you can redistribute it and/or modify
